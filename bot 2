@@ -1,0 +1,56 @@
+import os
+import random
+import discord
+
+# Создаем клиента Discord
+client = discord.Client()
+
+# Словарь с тематическими блоками и редкостью мемов
+themes = {
+    'animals': {'folder': 'animals_memes', 'rarity': 0.2},
+    'food': {'folder': 'food_memes', 'rarity': 0.1}
+}
+
+# Функция для выбора мема с заданной тематикой и редкостью
+def get_theme_meme(theme):
+    folder = themes[theme]['folder']
+    files = os.listdir(folder)
+    rare_chance = themes[theme]['rarity']
+    if random.random() < rare_chance:
+        rare_files = [file for file in files if file.startswith('rare_')]
+        if rare_files:
+            return random.choice(rare_files)
+    return random.choice(files)
+
+# Событие готовности бота
+@client.event
+async def on_ready():
+    print(f'We have logged in as {client.user}')
+
+# Событие получения сообщения
+@client.event
+async def on_message(message):
+    # Проверяем, что сообщение отправлено не ботом
+    if message.author == client.user:
+        return
+    
+    # Проверяем команду пользователя
+    if message.content.startswith('$'):
+        # Получаем тематику мема из сообщения пользователя
+        theme = message.content[1:]
+        # Проверяем, что такая тематика существует
+        if theme in themes:
+            # Выбираем мем с заданной тематикой
+            meme = get_theme_meme(theme)
+            # Отправляем мем в канал
+            with open(f'{themes[theme]["folder"]}/{meme}', 'rb') as f:
+                meme_file = discord.File(f)
+                await message.channel.send(file=meme_file)
+        else:
+            await message.channel.send("Тематика не найдена!")
+
+# Токен вашего Discord бота
+TOKEN = 'ваш_токен_бота'
+
+# Запускаем бота
+client.run(TOKEN)
