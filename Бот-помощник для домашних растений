@@ -1,0 +1,36 @@
+import discord
+from discord.ext import commands, tasks
+import datetime
+
+# Токен вашего бота
+TOKEN = 'ваш_токен'
+
+# Префикс команд для активации бота
+bot = commands.Bot(command_prefix='!')
+
+# Словарь для хранения информации о растениях и их параметрах
+plants = {}
+
+# Функция для добавления растения
+@bot.command(name='add_plant')
+async def add_plant(ctx, plant_name: str, water_interval: int):
+    """Добавляет новое растение в список и устанавливает интервал полива."""
+    plants[plant_name] = {'last_watered': datetime.datetime.now(), 'water_interval': water_interval}
+    await ctx.send(f'Растение {plant_name} добавлено в список.')
+
+# Функция для напоминания о поливе
+@tasks.loop(minutes=60)  # Проверяем каждый час
+async def remind_water():
+    """Проверяет, нужно ли напоминать о поливе растений."""
+    for plant, info in plants.items():
+        last_watered = info['last_watered']
+        water_interval = info['water_interval']
+        if datetime.datetime.now() - last_watered >= datetime.timedelta(days=water_interval):
+            await ctx.send(f'Пора полить растение {plant}!')
+
+@remind_water.before_loop
+async def before_remind_water():
+    await bot.wait_until_ready()
+
+remind_water.start()
+bot.run(TOKEN)
