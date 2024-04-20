@@ -1,0 +1,121 @@
+import discord
+from discord.ext import commands, tasks
+import datetime
+import json
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+with open('config.json', 'r') as f:
+    config = json.load(f)
+
+TOKEN = config.get('token')
+PREFIX = config.get('prefix', '!')
+bot = commands.Bot(command_prefix=PREFIX)
+plants = {}
+
+
+class Plant:
+    def __init__(self, name, water_interval):
+        self.name = name
+        self.last_watered = datetime.datetime.now()
+        self.water_interval = water_interval
+
+
+@bot.event
+async def on_ready():
+    logger.info(f'Бот {bot.user} готов к работе.')
+
+
+@bot.command(name='add_plant')
+async def add_plant(ctx, plant_name: str, water_interval: int):
+    """Добавляет новое растение в список и устанавливает интервал полива."""
+    if water_interval <= 0:
+        await ctx.send("Интервал полива должен быть положительным числом.")
+        return
+    if plant_name in plants:
+        await ctx.send(f"Растение с именем '{plant_name}' уже существует.")
+        return
+
+    plants[plant_name] = Plant(plant_name, water_interval)
+    await ctx.send(f'Растение {plant_name} добавлено в список.')
+
+
+@bot.command(name='remove_plant')
+async def remove_plant(ctx, plant_name: str):
+    """Удаляет растение из списка."""
+    if plant_name not in plants:
+        await ctx.send(f"Растение с именем '{plant_name}' не найдено.")
+        return
+
+    del plants[plant_name]
+    await ctx.send(f'Растение {plant_name} удалено из списка.')
+
+
+@bot.command(name='change_interval')
+async def change_interval(ctx, plant_name: str, water_interval: int):
+    """Изменяет интервал полива для указанного растения."""
+    if water_interval <= 0:
+        await ctx.send("Интервал полива должен быть положительным числом.")
+        return
+    if plant_name not in plants:
+        await ctx.send(f"Растение с именем '{plant_name}' не найдено.")
+        return
+
+    plants[plant_name].water_interval = water_interval
+    await ctx.send(f'Интервал полива для растения {plant_name} изменен на {water_interval} дней.')
+
+
+@tasks.loop(hours=1)
+async def remind_water():
+    """Проверяет, нужно ли напоминать о поливе растений."""
+    for plant_name, plant in plants.items():
+        if datetime.datetime.now() - plant.last_watered >= datetime.timedelta(days=plant.water_interval):
+            channel = bot.get_channel(config.get('channel_id'))
+            await channel.send(f'Пора полить растение {plant_name}!')
+            plant.last_watered = datetime.datetime.now()
+
+
+@remind_water.before_loop
+async def before_remind_water():
+    await bot.wait_until_ready()
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send("Такой команды не существует.")
+    else:
+        logger.error("Произошла ошибка при выполнении команды:", exc_info=error)
+        await ctx.send("Произошла ошибка при выполнении команды. Пожалуйста, попробуйте еще раз.")
+
+
+def save_plants():
+    with open('plants.json', 'w') as f:
+        json.dump({plant.name: {'last_watered': str(plant.last_watered), 'water_interval': plant.water_interval}
+                   for plant in plants.values()}, f)
+
+
+def load_plants():
+    try:
+        with open('plants.json', 'r') as f:
+            data = json.load(f)
+            for name, info in data.items():
+                last_watered = datetime.datetime.fromisoformat(info['last_watered'])
+                water_interval = info['water_interval']
+                plants[name] = Plant(name, water_interval)
+                plants[name].last_watered = last_watered
+    except FileNotFoundError:
+        logger.warning("Файл с данными о растениях не найден. Новый файл будет создан при сохранении данных.")
+    except Exception as e:
+        logger.error("Произошла ошибка при загрузке данных о растениях:", exc_info=e)
+
+
+load_plants()
+remind_water.start()
+
+try:
+    bot.run(TOKEN)
+finally:
+    save_plants()
